@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/VYWL/dksu-lab/issues"
   },
-  "homepage": "https://github.com/VYWL/dksu-lab#readme"
+  "homepage": "https://github.com/VYWL/dksu-lab#readme",
+  "dependencies": {
+    "puppeteer": "^19.7.2"
+  }
 }
