@@ -85,49 +85,96 @@ function getTextValuesAndLinksFromTbody(tbodySelector) {
     return courses;
 }
 
-/**
- * 과제 목록 정보를 불러오는 함수
- *
- * @param {string} apiUrl - API 엔드포인트 URL
- * @returns {Promise<object[]>} - 과제 목록 정보가 담긴 객체 배열을 반환하는 Promise 객체
- */
-function fetchTaskList(apiUrl) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', apiUrl);
-
-        const cookies = document.cookie.split('; ').reduce((cookieObj, cookieString) => {
-            const [key, value] = cookieString.split('=');
-            cookieObj[key] = value;
-            return cookieObj;
-        }, {});
-
-        const token = cookies['xn_api_token'];
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-
-        xhr.onload = function () {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                const taskList = JSON.parse(xhr.responseText);
-                resolve(taskList);
-            } else {
-                reject(new Error(`Failed to load task list (status ${xhr.status})`));
-            }
-        };
-
-        xhr.onerror = function () {
-            reject(new Error('Failed to load task list'));
-        };
-
-        xhr.send();
-    });
-}
-
-const getCourseLecListURL = lecNum => `https://learning.hanyang.ac.kr/courses/${lecNum}/external_tools/1`;
+const getCourseLecListURL = courseNum => `https://learning.hanyang.ac.kr/courses/${courseNum}/external_tools/1`;
 const getCourseLecVidURL = lecCd => `https://hycms.hanyang.ac.kr/em/${lecCd}`;
 
 const browseFile = path => fs.readFileSync(path, 'utf8');
 
 const browseJSON = path => JSON.parse(browseFile(path));
+
+/**
+ * 페이지에서 웹 요청을 보내는 함수입니다.
+ * @async
+ * @function
+ * @param {Object} config - 웹 요청을 위한 구성 객체입니다.
+ * @param {Page} config.page - 웹 요청에 사용할 Puppeteer 페이지 객체입니다.
+ * @param {string} config.url - 웹 요청을 보낼 URL입니다.
+ * @param {Object=} config.headers - 웹 요청에 전송할 사용자 지정 헤더입니다.
+ * @param {boolean=} config.useCookie - 웹 요청에 현재 페이지의 쿠키를 포함할지 여부를 지정합니다. 기본값은 true입니다.
+ * @returns {Promise<Object[]>} 웹 요청의 응답 객체 배열을 반환하는 Promise입니다.
+ */
+async function usePageRequest({ page, url, headers = {}, useCookie = true }) {
+    let cookies = null;
+
+    let requestHeaders = { ...headers };
+    if (useCookie) {
+        cookies = await page.cookies();
+        const xnApiToken = cookies.find(cookie => cookie.name === 'xn_api_token')?.value;
+
+        requestHeaders = {
+            ...requestHeaders,
+            Authorization: `Bearer ${xnApiToken}`,
+        };
+    }
+
+    const responseText = await page.evaluate(
+        ({ url, headers }) => {
+            return fetch(url, { headers }).then(res => res.text());
+        },
+        { url, requestHeaders }
+    );
+
+    return responseText;
+}
+
+/**
+ * 페이지에서 XHR 요청을 보내는 함수입니다.
+ * @async
+ * @function
+ * @param {Object} config - XHR 요청을 위한 구성 객체입니다.
+ * @param {Page} config.page - XHR 요청에 사용할 Puppeteer 페이지 객체입니다.
+ * @param {string} config.url - XHR 요청을 보낼 URL입니다.
+ * @param {Object=} config.headers - XHR 요청에 전송할 사용자 지정 헤더입니다.
+ * @param {boolean=} config.useCookie - XHR 요청에 현재 페이지의 쿠키를 포함할지 여부를 지정합니다. 기본값은 true입니다.
+ * @returns {Promise<Object>} XHR 요청의 응답 객체를 반환하는 Promise입니다.
+ */
+async function usePageXHR({ page, url, headers = {}, useCookie = true }) {
+    let cookies = null;
+    if (useCookie) {
+        cookies = await page.cookies();
+        const xnApiToken = cookies.find(cookie => cookie.name === 'xn_api_token')?.value;
+        headers = {
+            ...headers,
+            Authorization: `Bearer ${xnApiToken}`,
+        };
+    }
+
+    const response = await page.evaluate(
+        ({ url, headers }) => {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', url);
+                Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+                xhr.onload = () => {
+                    resolve(xhr.responseText);
+                };
+                xhr.onerror = () => reject(xhr);
+                xhr.send();
+            });
+        },
+        { url, headers }
+    );
+
+    return response;
+}
+
+function saveFile(path, data) {
+    fs.writeFileSync(path, data, 'utf8');
+}
+
+function saveFileAsJSON(path, data) {
+    saveFile(path, JSON.stringify(data));
+}
 
 function extractInfo(objArr) {
     return objArr.map(obj => {
@@ -139,10 +186,16 @@ function extractInfo(objArr) {
             unlock_at: obj.unlock_at,
             created_at: obj.created_at,
             due_at: obj.due_at,
+            commons_content: obj.commons_content,
         };
     });
 }
 
 module.exports = {
     qs,
+    usePageRequest,
+    usePageXHR,
+    saveFileAsJSON,
+    extractInfo,
+    browseJSON,
 };
